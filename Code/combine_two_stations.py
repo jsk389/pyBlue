@@ -33,10 +33,10 @@ def calc_noise(data):
     """ Calculate noise using low frequency figure-of-merit """
     # If there are enough points then run FFT, else just take variance
     if len(data) > 125:
-        f, p = FFT.fft_out.fft(40.0, len(nad[x]), nad[x],
+        f, p = FFT.fft_out.fft(40.0, len(data), data,
                                   'data', 'one')
         start = 0.0
-        end  = 200.0e-6 / (f[1]-f[0])
+        end  = 500.0e-6 / (f[1]-f[0])
         noise = np.sum(p[start:end+1]*(f[1]-f[0]))
     else:
         noise = np.var(data)
@@ -63,7 +63,7 @@ def recover_overlaps(new_data, data1, data2, overlap):
     overlap_starts = []
     overlap_ends = []
     nad = data1[:,1]
-    sus = data2[:,1]
+    sud = data2[:,1]
     for k, g in groupby(enumerate(overlap), lambda (i,y):i-y):
         x = map(itemgetter(1), g)
         overlap_starts.append(x[0])
@@ -74,6 +74,11 @@ def recover_overlaps(new_data, data1, data2, overlap):
         # Combine data
         combo = varn/(varn + varx) * nad[x] + varx/(varn + varx) * sud[x]
         new_data[x] = combo
+        #print(varn/(varn + varx), varx/(varn + varx))
+        #plt.plot(nad[x], 'b')
+        #plt.plot(sud[x], 'g')
+        #plt.plot(combo, 'r')
+        #plt.show()
     return new_data, overlap_starts, overlap_ends
 
 def add_in_no_overlaps(new_data, data1, data2, no_overlap):
@@ -137,7 +142,7 @@ def stitch_data(new_data, data1, data2, overlaps, stitch_type='start'):
                 finish = overlap[i]+5
                 # Combine over 10 bins around start of overlap
                 alpha = (t[1]-t[0])*5.0
-                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap_ends[i]]) / alpha))
+                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap[i]]) / alpha))
 
                 new_data[begin:finish] = (1.0 - sigma) * new_data[begin:finish] + sigma * data1[begin:finish, 1]
 
@@ -147,7 +152,7 @@ def stitch_data(new_data, data1, data2, overlaps, stitch_type='start'):
                 finish = overlap[i]+5
                 # Combine over 10 bins around start of overlap
                 alpha = (t[1]-t[0])*5.0
-                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap_ends[i]]) / alpha))
+                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap[i]]) / alpha))
 
                 new_data[begin:finish] = (1.0 - sigma) * new_data[begin:finish] + sigma * data2[begin:finish, 1]
 
@@ -166,10 +171,12 @@ if __name__ == "__main__":
     for i in fnames:
         labels.append(i.split('_')[0])
 
+    station1 = 2
+    station2 = 3
     # Read in data
-    na = get_bison(str(directory)+str(fnames[-2]), '5')
+    na = get_bison(str(directory)+str(fnames[int(station1)]), str(station1))
     na = np.c_[na['Time'].as_matrix(), na['Velocity'].as_matrix()]
-    su = get_bison(str(directory)+str(fnames[-1]), '6')
+    su = get_bison(str(directory)+str(fnames[int(station2)]), str(station2))
     su = np.c_[su['Time'].as_matrix(), su['Velocity'].as_matrix()]
 
     nat = na[:,0]
@@ -184,32 +191,42 @@ if __name__ == "__main__":
     new_data = np.zeros(len(na))
     # Insert overlaps into new dataset
     new_data, overlap_starts, overlap_ends = recover_overlaps(new_data, na, su, overlap)
+    plt.plot(nat, nad, 'b')
+    plt.plot(sut, sud, 'g')
+    plt.plot(nat, new_data, 'r')
+    plt.show()
     # Combine data
     # Want indices data where not overlapping with any other station and then
     # set new data at those indices equal to value of data
 
     new_data = add_in_no_overlaps(new_data, na, su, no_overlap)
-
+    new_data = stitch_data(new_data, na, su, overlap_starts, stitch_type='start')
+    new_data = stitch_data(new_data, na, su, overlap_ends, stitch_type='end')
     print("STATION 1 FILL: ", float(len(na[na[:,1] != 0])) / float(len(na)))
     print("STATION 2 FILL: ", float(len(su[su[:,1] != 0])) / float(len(su)))
 
     print("NEW FILL: ", float(len(new_data[new_data != 0])) / float(len(new_data)))
+    # Compare against naive case
     combo = np.c_[deepcopy(na[:,1]), deepcopy(su[:,1])]
     window = np.c_[deepcopy(na[:,1]), deepcopy(su[:,1])]
     window[:,0][window[:,0] != 0] = 1
     window[:,1][window[:,1] != 0] = 1
     combo = np.sum(combo, axis=1)/np.sum(window, axis=1)
     combo[~np.isfinite(combo)] = 0
-    plt.plot(combo)
-    plt.show()
+
+    # Make sure there are no nans or infs
     new_data[~np.isfinite(new_data)] = 0
+
+    # Compute FFTs
     fb, pb = FFT.fft_out.fft(40.0, len(combo), combo,
                                           'data', 'one')
     f, p = FFT.fft_out.fft(40.0, len(new_data), new_data,
                                           'data', 'one')
     plt.plot(f*1e6, pb-p)
+    plt.title('Differences')
     plt.show()
 
+    plt.title('')
     plt.plot(fb*1e6, pb, 'k')
     plt.plot(f*1e6, p, 'r')
     plt.show()
