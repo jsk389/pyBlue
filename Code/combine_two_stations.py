@@ -15,13 +15,13 @@ import pandas as pd
 from operator import itemgetter
 from itertools import groupby
 
-
 def get_bison(sfile, a):
+    """ Read in BiSON data from .h5 file """
     data = pd.HDFStore(sfile)
     return data[str(a)]
 
-
 def rebin(f, smoo):
+    """ Rebin data over smoo bins """
     if smoo < 1.5:
         return f
     smoo = int(smoo)
@@ -30,16 +30,128 @@ def rebin(f, smoo):
     return ff
 
 def calc_noise(data):
-    if len(data) > 40:
+    """ Calculate noise using low frequency figure-of-merit """
+    # If there are enough points then run FFT, else just take variance
+    if len(data) > 125:
         f, p = FFT.fft_out.fft(40.0, len(nad[x]), nad[x],
                                   'data', 'one')
         start = 0.0
         end  = 200.0e-6 / (f[1]-f[0])
-        print(start, end)
         noise = np.sum(p[start:end+1]*(f[1]-f[0]))
     else:
         noise = np.var(data)
     return 1.0 / noise
+
+def find_overlaps(data1, data2):
+    """ Find the where there are overlaps given two datasets.
+        Returns indices where there are and are not overlaps
+    """
+    # Find overlapping regions
+    overlap = np.where((data1[:,0] == data2[:,0]) &
+                       (data1[:,1] != 0) & (data2[:,1] != 0))[0]
+    # Get index array for station
+    ia = np.indices(np.shape(data1[:,0]))
+    # Work out where there are no overlaps
+    no_overlap = np.setxor1d(ia, overlap)
+    return overlap, no_overlap
+
+def recover_overlaps(new_data, data1, data2, overlap):
+    """ Recover overlap data, combine such that low frequency noise
+        is minimised
+    """
+    # Combine overlapping regions
+    overlap_starts = []
+    overlap_ends = []
+    nad = data1[:,1]
+    sus = data2[:,1]
+    for k, g in groupby(enumerate(overlap), lambda (i,y):i-y):
+        x = map(itemgetter(1), g)
+        overlap_starts.append(x[0])
+        overlap_ends.append(x[-1])
+        # Calculate fom for each station
+        varn = calc_noise(nad[x])
+        varx = calc_noise(sud[x])
+        # Combine data
+        combo = varn/(varn + varx) * nad[x] + varx/(varn + varx) * sud[x]
+        new_data[x] = combo
+    return new_data, overlap_starts, overlap_ends
+
+def add_in_no_overlaps(new_data, data1, data2, no_overlap):
+    """ Add in regions of data where there are no overlaps
+    """
+    # Cut down data
+    d = data1[no_overlap, 1]
+    a = new_data[no_overlap]
+    # Find where not equal to zero i.e. where taking data
+    idxn = np.where(d != 0)
+    # Add the data in
+    a[idxn] = d[idxn]
+    new_data[no_overlap] = a
+    # Combine rest of data
+    d = data2[no_overlap, 1]
+    a = new_data[no_overlap]
+    # Find where not equal to zero i.e. where taking data
+    idxn = np.where(d != 0)
+    # Add the data in
+    a[idxn] = d[idxn]
+    new_data[no_overlap] = a
+    return new_data
+
+def stitch_data(new_data, data1, data2, overlaps, stitch_type='start'):
+    """ Stitch together the data
+        stitch_type keyword dictates whether stitching at the beginning of an
+        overlap or at the end
+    """
+    t = data1[:,0]
+
+    if stitch_type == 'start':
+        # Stitch overlap starts
+        for i in range(len(overlap)):
+            # See which station is taking data before overlap
+            if data1[overlap[i]-1,1] != 0:
+                # Stitch data
+                begin = overlap[i]-5
+                finish = overlap[i]+5
+                # Combine over 10 bins around start of overlap
+                alpha = (t[1]-t[0])*5.0
+                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap[i]]) / alpha))
+
+                new_data[begin:finish] = (1.0 - sigma) * data1[begin:finish, 1] \
+                                                       + sigma * new_data[begin:finish]
+            else:
+                # Stitch data
+                begin = overlap[i]-5
+                finish = overlap[i]+5
+                # Combine over 10 bins around start of overlap
+                alpha = (t[1]-t[0])*5.0
+                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap[i]]) / alpha))
+
+                new_data[begin:finish] = (1.0 - sigma) * data2[begin:finish, 1] + sigma * new_data[begin:finish]
+    elif stitch_type == 'end':
+        # Stitch overlap ends
+        for i in range(len(overlap)):
+            # See which station is taking data before overlap
+            if data1[overlap[i]+1,1] != 0:
+                # Stitch data
+                begin = overlap[i]-5
+                finish = overlap[i]+5
+                # Combine over 10 bins around start of overlap
+                alpha = (t[1]-t[0])*5.0
+                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap_ends[i]]) / alpha))
+
+                new_data[begin:finish] = (1.0 - sigma) * new_data[begin:finish] + sigma * data1[begin:finish, 1]
+
+            else:
+                # Stitch data
+                begin = overlap[i]-5
+                finish = overlap[i]+5
+                # Combine over 10 bins around start of overlap
+                alpha = (t[1]-t[0])*5.0
+                sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap_ends[i]]) / alpha))
+
+                new_data[begin:finish] = (1.0 - sigma) * new_data[begin:finish] + sigma * data2[begin:finish, 1]
+
+    return new_data
 
 if __name__ == "__main__":
     print("Combine two station timeseries ...")
@@ -54,6 +166,7 @@ if __name__ == "__main__":
     for i in fnames:
         labels.append(i.split('_')[0])
 
+    # Read in data
     na = get_bison(str(directory)+str(fnames[-2]), '5')
     na = np.c_[na['Time'].as_matrix(), na['Velocity'].as_matrix()]
     su = get_bison(str(directory)+str(fnames[-1]), '6')
@@ -64,107 +177,18 @@ if __name__ == "__main__":
     nad = na[:,1]
     sud = su[:,1]
 
-    # Find overlapping regions
-    overlap = np.where((na[:,0] == su[:,0]) & (na[:,1] != 0) & (su[:,1] != 0))[0]
-    # Get index array for station
-    ia = np.indices(np.shape(na[:,0]))
-    # Work out where there are no overlaps
-    no_overlap = np.setxor1d(ia, overlap)
-    #no_overlap = list(set(ia.tolist())-set(overlap))
-    # New data array
+    # Find overlaps
+    overlap, no_overlap = find_overlaps(na, su)
+
+    # Create new data array
     new_data = np.zeros(len(na))
-    # Combine overlapping regions
-    overlap_starts = []
-    overlap_ends = []
-    for k, g in groupby(enumerate(overlap), lambda (i,y):i-y):
-        x = map(itemgetter(1), g)
-        overlap_starts.append(x[0])
-        overlap_ends.append(x[-1])
-        # Calculate fom for each station
-        varn = calc_noise(nad[x])
-        varx = calc_noise(sud[x])
-
-        # Combine data
-        combo = varn/(varn + varx) * nad[x] + varx/(varn + varx) * sud[x]
-        #plt.plot(nat[x], nad[x], 'b')
-        #plt.plot(sut[x], sud[x], 'g')
-        #plt.plot(nat[x], combo, 'r')
-        new_data[x] = combo
-        #plt.show()
-
-
+    # Insert overlaps into new dataset
+    new_data, overlap_starts, overlap_ends = recover_overlaps(new_data, na, su, overlap)
     # Combine data
     # Want indices data where not overlapping with any other station and then
     # set new data at those indices equal to value of data
 
-    # Cut down data
-    d = na[no_overlap, 1]
-    a = new_data[no_overlap]
-    # Find where not equal to zero i.e. where taking data
-    idxn = np.where(d != 0)
-    # Add the data in
-    a[idxn] = d[idxn]
-    new_data[no_overlap] = a
-    # Combine rest of data
-    d = su[no_overlap, 1]
-    a = new_data[no_overlap]
-    # Find where not equal to zero i.e. where taking data
-    idxn = np.where(d != 0)
-    # Add the data in
-    a[idxn] = d[idxn]
-    new_data[no_overlap] = a
-
-    # Stitch data together properly
-    t = na[:,0]
-    # Stitch overlap starts
-    for i in range(len(overlap_starts)):
-        # See which station is taking data before overlap
-        if na[overlap_starts[i]-1,1] != 0:
-            # Stitch data
-            begin = overlap_starts[i]-5
-            finish = overlap_ends[i]+5
-            # Combine over 10 bins around start of overlap
-            alpha = (t[1]-t[0])*5.0
-            sigma =  1. / (1 + np.exp(-(t[begin:overlap_starts[i]+5] - t[overlap_starts[i]]) / alpha))
-
-            new_data[begin:overlap_starts[i]+5] = (1.0 - sigma) * na[begin:overlap_starts[i]+5, 1] + sigma * new_data[begin:overlap_starts[i]+5]
-
-        else:
-            # Stitch data
-            begin = overlap_starts[i]-5
-            finish = overlap_ends[i]+5
-            # Combine over 10 bins around start of overlap
-            alpha = (t[1]-t[0])*5.0
-            sigma =  1. / (1 + np.exp(-(t[begin:overlap_starts[i]+5] - t[overlap_starts[i]]) / alpha))
-
-            new_data[begin:overlap_starts[i]+5] = (1.0 - sigma) * su[begin:overlap_starts[i]+5, 1] + sigma * new_data[begin:overlap_starts[i]+5]
-
-    # Stitch overlap ends
-    for i in range(len(overlap_ends)):
-        # See which station is taking data before overlap
-        if na[overlap_ends[i]+1,1] != 0:
-            # Stitch data
-            begin = overlap_ends[i]-5
-            finish = overlap_ends[i]+5
-            # Combine over 10 bins around start of overlap
-            alpha = (t[1]-t[0])*5.0
-            sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap_ends[i]]) / alpha))
-
-            new_data[begin:finish] = (1.0 - sigma) * new_data[begin:finish] + sigma * na[begin:finish, 1]
-
-        else:
-            # Stitch data
-            begin = overlap_ends[i]-5
-            finish = overlap_ends[i]+5
-            # Combine over 10 bins around start of overlap
-            alpha = (t[1]-t[0])*5.0
-            sigma =  1. / (1 + np.exp(-(t[begin:finish] - t[overlap_ends[i]]) / alpha))
-
-            new_data[begin:finish] = (1.0 - sigma) * new_data[begin:finish] + sigma * su[begin:finish, 1]
-
-
-
-
+    new_data = add_in_no_overlaps(new_data, na, su, no_overlap)
 
     print("STATION 1 FILL: ", float(len(na[na[:,1] != 0])) / float(len(na)))
     print("STATION 2 FILL: ", float(len(su[su[:,1] != 0])) / float(len(su)))
