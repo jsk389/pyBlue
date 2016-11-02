@@ -15,10 +15,14 @@ import pandas as pd
 from operator import itemgetter
 from itertools import groupby
 
-def get_bison(sfile, a):
+def get_bison(sfile, a, chunk_size=-1):
     """ Read in BiSON data from .h5 file """
-    data = pd.HDFStore(sfile)
-    return data[str(a)]
+    # TODO: chunksize needs testing
+    if chunk_size > 0:
+        data = pd.read_hdf(sfile, chunksize=chunk_size)
+    else:
+        data = pd.read_hdf(sfile)
+    return data
 
 def rebin(f, smoo):
     """ Rebin data over smoo bins """
@@ -102,7 +106,7 @@ def add_in_no_overlaps(new_data, data1, data2, no_overlap):
     new_data[no_overlap] = a
     return new_data
 
-def stitch_data(new_data, data1, data2, overlaps, stitch_type='start'):
+def stitch_data(new_data, data1, data2, overlap, stitch_type='start'):
     """ Stitch together the data
         stitch_type keyword dictates whether stitching at the beginning of an
         overlap or at the end
@@ -158,6 +162,56 @@ def stitch_data(new_data, data1, data2, overlaps, stitch_type='start'):
 
     return new_data
 
+def run_concatenation(data1, data2, plot=False):
+    """ Run concatenation procedure for 2 stations
+    """
+    # Find overlaps
+    overlap, no_overlap = find_overlaps(data1, data2)
+
+    # Create new data array
+    new_data = np.zeros(len(data1))
+    # Insert overlaps into new dataset
+    new_data, overlap_starts, overlap_ends = recover_overlaps(new_data, data1, data2, overlap)
+    #plt.plot(nat, nad, 'b')
+    #plt.plot(sut, sud, 'g')
+    #plt.plot(nat, new_data, 'r')
+    #plt.show()
+    # Combine data
+    # Want indices data where not overlapping with any other station and then
+    # set new data at those indices equal to value of data
+
+    new_data = add_in_no_overlaps(new_data, data1, data2, no_overlap)
+    new_data = stitch_data(new_data, data1, data2, overlap_starts, stitch_type='start')
+    new_data = stitch_data(new_data, data1, data2, overlap_ends, stitch_type='end')
+    print("STATION 1 FILL: ", float(len(data1[data1[:,1] != 0])) / float(len(data1)))
+    print("STATION 2 FILL: ", float(len(data2[data2[:,1] != 0])) / float(len(data2)))
+
+    print("NEW FILL: ", float(len(new_data[new_data != 0])) / float(len(new_data)))
+    # Compare against naive case
+    combo = np.c_[deepcopy(data1[:,1]), deepcopy(data2[:,1])]
+    window = np.c_[deepcopy(data2[:,1]), deepcopy(data2[:,1])]
+    window[:,0][window[:,0] != 0] = 1
+    window[:,1][window[:,1] != 0] = 1
+    combo = np.sum(combo, axis=1)/np.sum(window, axis=1)
+    combo[~np.isfinite(combo)] = 0
+
+    # Make sure there are no nans or infs
+    new_data[~np.isfinite(new_data)] = 0
+    if plot:
+        # Compute FFTs
+        fb, pb = FFT.fft_out.fft(40.0, len(combo), combo,
+                                          'data', 'one')
+        f, p = FFT.fft_out.fft(40.0, len(new_data), new_data,
+                                          'data', 'one')
+        plt.plot(f*1e6, pb-p)
+        plt.title('Differences')
+        plt.show()
+
+        plt.title('')
+        plt.plot(fb*1e6, pb, 'k')
+        plt.plot(f*1e6, p, 'r')
+        plt.show()
+
 if __name__ == "__main__":
     print("Combine two station timeseries ...")
 
@@ -171,62 +225,13 @@ if __name__ == "__main__":
     for i in fnames:
         labels.append(i.split('_')[0])
 
-    station1 = 2
-    station2 = 3
+    station1 = 0
+    station2 = 2
     # Read in data
     na = get_bison(str(directory)+str(fnames[int(station1)]), str(station1))
     na = np.c_[na['Time'].as_matrix(), na['Velocity'].as_matrix()]
     su = get_bison(str(directory)+str(fnames[int(station2)]), str(station2))
     su = np.c_[su['Time'].as_matrix(), su['Velocity'].as_matrix()]
 
-    nat = na[:,0]
-    sut = su[:,0]
-    nad = na[:,1]
-    sud = su[:,1]
-
-    # Find overlaps
-    overlap, no_overlap = find_overlaps(na, su)
-
-    # Create new data array
-    new_data = np.zeros(len(na))
-    # Insert overlaps into new dataset
-    new_data, overlap_starts, overlap_ends = recover_overlaps(new_data, na, su, overlap)
-    plt.plot(nat, nad, 'b')
-    plt.plot(sut, sud, 'g')
-    plt.plot(nat, new_data, 'r')
-    plt.show()
-    # Combine data
-    # Want indices data where not overlapping with any other station and then
-    # set new data at those indices equal to value of data
-
-    new_data = add_in_no_overlaps(new_data, na, su, no_overlap)
-    new_data = stitch_data(new_data, na, su, overlap_starts, stitch_type='start')
-    new_data = stitch_data(new_data, na, su, overlap_ends, stitch_type='end')
-    print("STATION 1 FILL: ", float(len(na[na[:,1] != 0])) / float(len(na)))
-    print("STATION 2 FILL: ", float(len(su[su[:,1] != 0])) / float(len(su)))
-
-    print("NEW FILL: ", float(len(new_data[new_data != 0])) / float(len(new_data)))
-    # Compare against naive case
-    combo = np.c_[deepcopy(na[:,1]), deepcopy(su[:,1])]
-    window = np.c_[deepcopy(na[:,1]), deepcopy(su[:,1])]
-    window[:,0][window[:,0] != 0] = 1
-    window[:,1][window[:,1] != 0] = 1
-    combo = np.sum(combo, axis=1)/np.sum(window, axis=1)
-    combo[~np.isfinite(combo)] = 0
-
-    # Make sure there are no nans or infs
-    new_data[~np.isfinite(new_data)] = 0
-
-    # Compute FFTs
-    fb, pb = FFT.fft_out.fft(40.0, len(combo), combo,
-                                          'data', 'one')
-    f, p = FFT.fft_out.fft(40.0, len(new_data), new_data,
-                                          'data', 'one')
-    plt.plot(f*1e6, pb-p)
-    plt.title('Differences')
-    plt.show()
-
-    plt.title('')
-    plt.plot(fb*1e6, pb, 'k')
-    plt.plot(f*1e6, p, 'r')
-    plt.show()
+    # Run procedure
+    run_concatenation(na, su, plot=False)
