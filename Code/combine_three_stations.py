@@ -44,19 +44,6 @@ def read_data(directory, fname, station):
         data = np.c_[data['Time'].as_matrix(), data['Velocity'].as_matrix()]
         return data
 
-def calc_noise(data):
-    """ Calculate noise using low frequency figure-of-merit """
-    # If there are enough points then run FFT, else just take variance
-    if len(data) > 125:
-        f, p = FFT.fft_out.fft(40.0, len(data), data,
-                                  'data', 'one')
-        start = 0.0
-        end  = 500.0e-6 / (f[1]-f[0])
-        noise = np.sum(p[start:end+1]*(f[1]-f[0]))
-    else:
-        noise = np.var(data)
-    return 1.0 / noise
-
 def plot_data(data):
     plt.plot(data[:,0], data[:,1])
     plt.plot(data[:,0], data[:,2])
@@ -72,6 +59,23 @@ def combinations(iterable, r):
         if sorted(indices) == list(indices):
             yield tuple(pool[i] for i in indices)
 
+def create_selectors(active_stations, n_stations):
+    """ Generate a list of stations of length n_stations which is 1
+        where stations is chosen and 0 otherwise
+        Input: tuple containing number of each active stations (0, to n_stations-1)
+    """
+    selectors = np.zeros(n_stations, dtype=int)
+    for i in active_stations:
+        selectors[i] = 1
+    return selectors.tolist()
+
+def compress(data, selectors):
+    """ Choose data given selectors, taken from python itertools docs.
+    This enables us to select the data we want given the selectors
+    # compress('ABCDEF', [1,0,1,0,1,1]) --> A C E F
+    """
+    return (d for d, s in zip(data, selectors) if s)
+
 def compute_all_combinations(n_stations):
     """ Compute all combinations of stations for overlap search
     """
@@ -81,12 +85,99 @@ def compute_all_combinations(n_stations):
 
     return list(chain(*combos))
 
+def where_overlaps(data):
+    """ Given a data set, return where there are overlaps
+    """
+    x = np.zeros(len(data))
+    # Create boolean array for each column
+    for i in range(1, np.shape(data)[1]):
+        x += 1*((data[:,(i-1)] != 0) & (data[:, i] != 0))
+    # Normalise to account for shorter station overlaps than those wanted
+    x /= (float(np.shape(data)[1] - 1))
+    # The above effectively works out to summing the window function and
+    # normalising by the number of stations so that were it equals one
+    # is equivalent to the overlap we are interested in
+
+    # Overlaps are now where x == 1
+    overlaps = np.where(x == 1)[0]
+
+    plt.plot(data)
+    plt.plot(x, 'r')
+    plt.show()
+
+    # Get index array for station
+    ia = np.indices(np.shape(data[:,0]))
+    # Work out where there are no overlaps
+    no_overlap = np.setxor1d(ia, overlaps)
+
+    return np.where(x == 1)[0], no_overlap
+
+def calc_noise(data):
+    """ Calculate noise using low frequency figure-of-merit """
+    # If there are enough points then run FFT, else just take variance
+    noise = np.zeros(np.shape(data)[1])
+    for i in range(len(noise)):
+        if len(data) > 125:
+            f, p = FFT.fft_out.fft(40.0, len(data[:,i]), data[:,i],
+                                    'data', 'one')
+            start = 0.0
+            end  = 500.0e-6 / (f[1]-f[0])
+            noise[i] = np.sum(p[start:end+1]*(f[1]-f[0]))
+        else:
+            noise[i] = np.var(data[:,i])
+    return 1.0 / noise
+
+def recover_overlaps(new_data, data, overlap):
+    """ Recover overlapping data such that low frequency noise is minimised
+    """
+    # Combine overlapping regions
+    overlap_starts = []
+    overlap_ends = []
+    # Define overlapping regions
+    for k, g in groupby(enumerate(overlap), lambda (i,y): i-y):
+        x = map(itemgetter(1), g)
+        overlap_starts.append(x[0])
+        overlap_ends.append(x[-1])
+        # Calculate the fom for given stations
+        fom = calc_noise(data)
+        # Combine datasets
+        combo = np.array([fom[i]/np.sum(fom) * data[x,i]
+                          for i in range(np.shape(data)[1])])
+        new_data[x] = combo
+    return new_data, overlap_stars, overlap_ends
+
 def find_overlaps(data, n_stations):
     """ Find the where there are overlaps given n_station datasets.
         Returns indices where there are and are not overlaps
     """
     # Number of stations for combining
     combinations = compute_all_combinations(n_stations)
+    # Create new data array
+    new_data = np.zeros(len(data))
+    # Loop over all combinations
+    for i in range(len(combinations)):
+        print(combinations[i])
+        # Create selectors
+        selectors = create_selectors(combinations[i], n_stations)
+        # Use selectors to choose data from correct stations - WORKS!
+        x = compress(data[:,1:].T, selectors)
+        x = np.array(list(x)).T
+        # Add time array back in, just in case it is needed
+        tmp_data = np.c_[data[:,0], x]
+        print(np.shape(x))
+        overlaps, no_overlaps = where_overlaps(tmp_data[:,1:])
+        # Add in data from overlaps
+        new_data = recover_overlaps(new_data, tmp_data[:,1:], overlaps)
+        plt.plot(new_data)
+        plt.show()
+    sys.exit()
+
+
+    # TODO: set up a dictionary containing number of stations overlapping and
+    # where and when they start and finish
+
+    sys.exit()
+
 
     overlaps = {}
     for i in range(len(combinations)):
@@ -96,10 +187,7 @@ def find_overlaps(data, n_stations):
     # Find overlapping regions
     overlap = np.where((data1[:,0] == data2[:,0]) &
                        (data1[:,1] != 0) & (data2[:,1] != 0))[0]
-    # Get index array for station
-    ia = np.indices(np.shape(data1[:,0]))
-    # Work out where there are no overlaps
-    no_overlap = np.setxor1d(ia, overlap)
+
     return overlap, no_overlap
 
 def run_concatenation(data, plot=False):
@@ -126,11 +214,15 @@ if __name__=="__main__":
     for i in fnames:
         labels.append(i.split('_')[0])
     # Select stations to combine
-    station1 = 0
-    station2 = 2
-    station3 = 3
+    station1 = 2
+    station2 = 3
+    station3 = 4
+
     stations = [station1, station2, station3]
-    fnames = [fnames[station1], fnames[station2], fnames[station3]]
+    #stations = [0,1,2,3,4,5]
+    fnames = [fnames[i] for i in stations]
+    print(fnames)
+    #fnames = [fnames[station1], fnames[station2], fnames[station3]]
     # Read in data
     data = read_data(directory, fnames, stations)
 
