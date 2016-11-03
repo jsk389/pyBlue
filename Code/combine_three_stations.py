@@ -224,6 +224,7 @@ def run_concatenation(data, plot=False):
 
     #plt.plot(new_data)
     new_data = add_in_no_overlaps(new_data, data[:,1:], common_elem)
+    print(float(len(new_data[new_data != 0]))/float(len(new_data)))
     #plt.plot(new_data)
     #plt.show()
 
@@ -234,11 +235,11 @@ def stitch_data(new_data, data, overlap, stitch_type):
     """
     t = data[:,0]
 
-    if stitch_type == 'start':
-        # Stitch overlap starts
-        for i in range(len(overlap)):
-            # See which station is data before overlap
-                
+    #if stitch_type == 'start':
+#        # Stitch overlap starts#
+        #for i in range(len(overlap)):
+        #    # See which station is data before overlap
+
 
 if __name__=="__main__":
 
@@ -259,13 +260,12 @@ if __name__=="__main__":
     station3 = 4
 
     stations = [station1, station2, station3]
-    stations = [4,5,6]
+    stations = [0,1,2,3,4,5,6]
     fnames = [fnames[i] for i in stations]
     print(fnames)
     #fnames = [fnames[station1], fnames[station2], fnames[station3]]
     # Read in data
     data = read_data(directory, fnames, stations)
-
     # Plot data
     #plot_data(data)
     #plt.show()
