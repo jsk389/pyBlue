@@ -101,10 +101,6 @@ def where_overlaps(data):
     # Overlaps are now where x == 1
     overlaps = np.where(x == 1)[0]
 
-    plt.plot(data)
-    plt.plot(x, 'r')
-    plt.show()
-
     # Get index array for station
     ia = np.indices(np.shape(data[:,0]))
     # Work out where there are no overlaps
@@ -139,12 +135,17 @@ def recover_overlaps(new_data, data, overlap):
         overlap_starts.append(x[0])
         overlap_ends.append(x[-1])
         # Calculate the fom for given stations
-        fom = calc_noise(data)
+        fom = calc_noise(data[x, :])
         # Combine datasets
         combo = np.array([fom[i]/np.sum(fom) * data[x,i]
-                          for i in range(np.shape(data)[1])])
+                          for i in range(np.shape(data)[1])]).T.sum(1)
+        print(np.shape(combo))
+        #for i in range(np.shape(data[x,:])[1]):
+    #        plt.plot(data[x,i])
+#        plt.plot(combo, 'r', linestyle='--')
+        #plt.show()
         new_data[x] = combo
-    return new_data, overlap_stars, overlap_ends
+    return new_data, overlap_starts, overlap_ends
 
 def find_overlaps(data, n_stations):
     """ Find the where there are overlaps given n_station datasets.
@@ -167,9 +168,9 @@ def find_overlaps(data, n_stations):
         print(np.shape(x))
         overlaps, no_overlaps = where_overlaps(tmp_data[:,1:])
         # Add in data from overlaps
-        new_data = recover_overlaps(new_data, tmp_data[:,1:], overlaps)
-        plt.plot(new_data)
-        plt.show()
+        new_data, _, _ = recover_overlaps(new_data, tmp_data[:,1:], overlaps)
+    plt.plot(new_data)
+    plt.show()
     sys.exit()
 
 
@@ -219,7 +220,7 @@ if __name__=="__main__":
     station3 = 4
 
     stations = [station1, station2, station3]
-    #stations = [0,1,2,3,4,5]
+    stations = [0,1,2,3,4,5]
     fnames = [fnames[i] for i in stations]
     print(fnames)
     #fnames = [fnames[station1], fnames[station2], fnames[station3]]
