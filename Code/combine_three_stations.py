@@ -102,10 +102,12 @@ def where_overlaps(data):
     overlaps = np.where(x == 1)[0]
 
     # Get index array for station
-    ia = np.indices(np.shape(data[:,0]))
+    ia = np.indices(np.shape(data[:,0])).squeeze()
+
     # Work out where there are no overlaps
     no_overlap = np.setxor1d(ia, overlaps)
-
+    print("NO-OVERLAP: ", len(no_overlap))
+    print(np.shape(ia))
     return np.where(x == 1)[0], no_overlap
 
 def calc_noise(data):
@@ -139,7 +141,7 @@ def recover_overlaps(new_data, data, overlap):
         # Combine datasets
         combo = np.array([fom[i]/np.sum(fom) * data[x,i]
                           for i in range(np.shape(data)[1])]).T.sum(1)
-        print(np.shape(combo))
+        #print(np.shape(combo))
         #for i in range(np.shape(data[x,:])[1]):
     #        plt.plot(data[x,i])
 #        plt.plot(combo, 'r', linestyle='--')
@@ -155,7 +157,11 @@ def find_overlaps(data, n_stations):
     combinations = compute_all_combinations(n_stations)
     # Create new data array
     new_data = np.zeros(len(data))
-    # Loop over all combinations
+    # Loop over all combination
+    full_overlap_starts = []
+    full_overlap_ends = []
+    full_overlaps = []
+    full_no_overlaps = []
     for i in range(len(combinations)):
         print(combinations[i])
         # Create selectors
@@ -168,28 +174,33 @@ def find_overlaps(data, n_stations):
         print(np.shape(x))
         overlaps, no_overlaps = where_overlaps(tmp_data[:,1:])
         # Add in data from overlaps
-        new_data, _, _ = recover_overlaps(new_data, tmp_data[:,1:], overlaps)
-    plt.plot(new_data)
-    plt.show()
-    sys.exit()
+        new_data, starts, ends = recover_overlaps(new_data, tmp_data[:,1:], overlaps)
+        # Append start and end times of overlaps for stitching
+        full_overlap_starts.append(starts)
+        full_overlap_ends.append(ends)
+        # Append overlaps and no overlaps for stitching
+        full_overlaps.append(overlaps)
+        full_no_overlaps.append(no_overlaps)
 
+    return new_data, full_overlap_starts, full_overlap_ends, \
+           full_overlaps, full_no_overlaps
 
-    # TODO: set up a dictionary containing number of stations overlapping and
-    # where and when they start and finish
+def add_in_no_overlaps(new_data, data, no_overlap):
+    """ Add in regions of data where there are no overlaps
+    """
+    for i in range(np.shape(data)[1]):
+        # Cut down the data
+        d = data[no_overlap,i]
+        a = new_data[no_overlap]
+        # Find where not equal to zero i.e. where taking data
+        idx = np.where(d != 0)
+        # Add the data in
+        a[idx] = d[idx]
+        new_data[no_overlap] = a
+    return new_data
 
-    sys.exit()
-
-
-    overlaps = {}
-    for i in range(len(combinations)):
-        tmp_dat = data[:,combinations[i]]
-        cond = []
-        overlaps[len(combinations[i])] = np.where(data[:,])
-    # Find overlapping regions
-    overlap = np.where((data1[:,0] == data2[:,0]) &
-                       (data1[:,1] != 0) & (data2[:,1] != 0))[0]
-
-    return overlap, no_overlap
+def find_common_elements(old, new):
+    return list(set(old) & set(new))
 
 def run_concatenation(data, plot=False):
     """ Run concatenation procedure
@@ -199,7 +210,35 @@ def run_concatenation(data, plot=False):
     n_stations = np.shape(data)[1] - 1
 
     # Work out overlaps
-    find_overlaps(data, n_stations)
+    new_data, full_overlap_starts, full_overlap_ends, \
+           full_overlaps, full_no_overlaps = find_overlaps(data, n_stations)
+    # Need to condense full_no_overlaps from n_combinations down to one
+    # definitive version
+
+    # Find non-overlapping segments
+    i = 1
+    common_elem = full_no_overlaps[0]
+    while i < len(full_no_overlaps):
+        common_elem = find_common_elements(common_elem, full_no_overlaps[i])
+        i += 1
+
+    #plt.plot(new_data)
+    new_data = add_in_no_overlaps(new_data, data[:,1:], common_elem)
+    #plt.plot(new_data)
+    #plt.show()
+
+def stitch_data(new_data, data, overlap, stitch_type):
+    """ Stitch together the data
+        stitch_type keyword dictates whether stitching at the beginning of an
+        overlap or at the end
+    """
+    t = data[:,0]
+
+    if stitch_type == 'start':
+        # Stitch overlap starts
+        for i in range(len(overlap)):
+            # See which station is data before overlap
+                
 
 if __name__=="__main__":
 
@@ -220,7 +259,7 @@ if __name__=="__main__":
     station3 = 4
 
     stations = [station1, station2, station3]
-    stations = [0,1,2,3,4,5]
+    stations = [4,5,6]
     fnames = [fnames[i] for i in stations]
     print(fnames)
     #fnames = [fnames[station1], fnames[station2], fnames[station3]]
