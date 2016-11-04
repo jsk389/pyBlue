@@ -175,6 +175,7 @@ def find_overlaps(data, n_stations):
         overlaps, no_overlaps = where_overlaps(tmp_data[:,1:])
         # Add in data from overlaps
         new_data, starts, ends = recover_overlaps(new_data, tmp_data[:,1:], overlaps)
+        # TODO: need to stitch the overlaps during these combinations!
         # Append start and end times of overlaps for stitching
         full_overlap_starts.append(starts)
         full_overlap_ends.append(ends)
@@ -223,19 +224,78 @@ def run_concatenation(data, plot=False):
         i += 1
 
     #plt.plot(new_data)
+    # Stitch overlapping data together first and then add in non-overlapping
+    # segments after!
+    #stitch_overlaps(new_data, data, full_overlap_starts, full_overlap_ends)
+    #sys.exit()
     new_data = add_in_no_overlaps(new_data, data[:,1:], common_elem)
+    # Compute FFTs
+    from copy import deepcopy
+    combo = data[:,1:]
+    window = deepcopy(combo)
+    for i in range(np.shape(window)[1]):
+        window[:,i][window[:,i] != 0] = 1
+    #plt.plot(window)
+    #plt.show()
+    combo = np.sum(combo, axis=1)/np.sum(window, axis=1)
+    combo[~np.isfinite(combo)] = 0
+
+    # Make sure there are no nans or infs
+    new_data[~np.isfinite(new_data)] = 0
+    # Compute FFTs
+    fb, pb = FFT.fft_out.fft(40.0, len(combo), combo,
+                                      'data', 'one')
+    f, p = FFT.fft_out.fft(40.0, len(new_data), new_data,
+                                      'data', 'one')
+    plt.plot(f*1e6, pb-p)
+    plt.title('Differences')
+    plt.show()
+
+    plt.title('')
+    plt.plot(fb*1e6, pb, 'k')
+    plt.plot(f*1e6, p, 'r')
+    plt.show()
+
+
     print(float(len(new_data[new_data != 0]))/float(len(new_data)))
     #plt.plot(new_data)
     #plt.show()
 
-def stitch_data(new_data, data, overlap, stitch_type):
+def stitch_overlaps(new_data, data, overlap_start, overlap_end):
     """ Stitch together the data
         stitch_type keyword dictates whether stitching at the beginning of an
         overlap or at the end
+        Here we are only interested in stitching overlaps together and therefore only
+        care about where the overlap starts so that we don't end up stitching twice
     """
     t = data[:,0]
+    # Flatten list
+    overlap_start = list(chain(*overlap_start))
+    overlap_end = list(chain(*overlap_end))
+    assert len(overlap_start) == len(overlap_end)
+    for i in range(len(overlap_start)):
+        # Not stitching zeros to
+        if new_data[overlap[i]-1] == 0:
+            pass
+    # Stitch overlaps
+        # See if there is any data before the overlap
+        # If there isn't then we don't need to stitch (for the moment)
+#        if new_data[overlap[i]-1] == 0:
+    #        pass
+        #else:
+        #begin = overlap[i]-5
+        #finish = overlap[i]+5
+        # Combine over 10 bins around start of overlap
+        #alpha = (t[1]-t[0])*5.0
+        #sigma = 1. / (1 + np.exp(-(t[begin:finish] - t[overlap[i]]) / alpha))
+        #plt.plot(t[begin-10:finish+10], new_data[begin-10:finish+10], 'k')
+        #print(len(x), len(t[begin:finish]))
+        #plt.plot(t[begin:finish], x, 'r')
+        #plt.show()
 
-    #if stitch_type == 'start':
+    return overlap
+
+
 #        # Stitch overlap starts#
         #for i in range(len(overlap)):
         #    # See which station is data before overlap
