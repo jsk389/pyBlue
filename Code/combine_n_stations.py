@@ -328,16 +328,24 @@ if __name__=="__main__":
         tmp = [x.split('/')[-1] for x in tmp]
         fnames[:,i] = np.sort(tmp)
 
+    #TODO need to make sure that 0th bin is same time stamp for every station!!
+
 
 
     for i in range(len(fnames)):
         year = fnames[i,0].split('_')[1]
         print("Year being combined: ", year)
-
         data = read_data(directory, fnames[i], stations)
-
         # Run procedure
         # TODO write out to file!
+        #tmp = data[:,1:].sum(1)
+        #print(len(tmp))
+        #fill = float(len(tmp[tmp != 0])) / float(len(tmp))
+        #print("Fill: ", fill)
         new_data = run_concatenation(data, plot=False)
+        #fill = float(len(new_data[new_data != 0])) / float(len(new_data))
+        #print("Fill: ", fill)
+        #plt.plot(new_data, 'r')
+        #plt.show()
         df = pd.DataFrame(data=np.c_[data[:,0], new_data], columns=['Time', 'Velocity'])
         df.to_hdf(str(save_directory)+str(year)+'_pca_ts.h5', str(year), mode='w', format='fixed')

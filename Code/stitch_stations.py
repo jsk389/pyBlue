@@ -85,17 +85,16 @@ if __name__=="__main__":
     # First cycle outside loop
     data1 = get_bison(fnames[0])
     data2 = get_bison(fnames[1])
-    print(data1)
-    print(data1[:,0])
-    idx = np.where(data1[:,0] == data2[:,0])[0]
-    print(idx)
-    t_stitch = data1[idx[len(idx//2)], 0]
 
-    print(np.shape(data1))
-    print(t_stitch)
+    new_data = np.zeros(len(data1[:,0] < np.min(data2[:,0])))
+    print(np.shape(new_data), np.shape(data1))
     sys.exit()
+    new_data[data1[:,0] < np.min(data2[:,0])] = data1[data1[:,0] < np.min(data2[:,0]), 1]
 
-    for i in range(1, len(fnames)):
+    for i in range(2, len(fnames)):
+        tmp = data1[data1[:,0] < np.min(data2[:,0]), 1]
+        #new_data = np.
+
         data1 = get_bison(fnames[i-1])
         data2 = get_bison(fnames[i])
         print(np.shape(data1))
