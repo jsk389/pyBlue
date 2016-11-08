@@ -2,7 +2,7 @@
 from __future__ import division
 
 from copy import deepcopy
-
+import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -305,32 +305,26 @@ def stitch_overlaps(new_data, data, overlap_start, overlap_end):
 
 if __name__=="__main__":
 
-    print("Combine three station timeseries ...")
+    print("Combine full 1 year station timeseries ...")
 
     # Individual sites
-    directory = '/home/jsk389/Dropbox/Python/BiSON/SolarFLAG/PCA/Analysis/'
-    fnames = ['ca_1yr_pca_ts.h5', 'cb_1yr_pca_ts.h5', 'iz_1yr_pca_ts.h5', \
-              'la_1yr_pca_ts.h5', 'mo_1yr_pca_ts.h5', 'na_1yr_pca_ts.h5', \
-              'su_1yr_pca_ts.h5']
-    # Create labels from file names
-    labels = []
-    for i in fnames:
-        labels.append(i.split('_')[0])
-    # Select stations to combine
-    station1 = 2
-    station2 = 3
-    station3 = 4
+    directory = '/home/jsk389/Dropbox/Python/BiSON/SolarFLAG/PCA/Analysis/new_ts/'
+    labels = ['ca', 'cb', 'iz', 'la', 'mo', 'na', 'su']
+#    fnames = ['ca_1yr_pca_ts.h5', 'cb_1yr_pca_ts.h5', 'iz_1yr_pca_ts.h5', \
+#              'la_1yr_pca_ts.h5', 'mo_1yr_pca_ts.h5', 'na_1yr_pca_ts.h5', \
+#              'su_1yr_pca_ts.h5']
 
-    stations = [station1, station2, station3]
     stations = [0,1,2,3,4,5,6]
-    fnames = [fnames[i] for i in stations]
-    print(fnames)
-    #fnames = [fnames[station1], fnames[station2], fnames[station3]]
-    # Read in data
-    data = read_data(directory, fnames, stations)
-    # Plot data
-    #plot_data(data)
-    #plt.show()
+    fs = glob.glob(str(directory)+'ca*.h5')
+    fnames = np.zeros([len(fs), len(stations)], dtype=object)
+    for i in range(len(stations)):
+        tmp = glob.glob(str(directory)+str(labels[i])+'*.h5')
+        tmp = [x.split('/')[-1] for x in tmp]
+        fnames[:,i] = np.sort(tmp)
 
-    # Run procedure
-    run_concatenation(data, plot=False)
+    for i in range(np.shape(fnames)[1]):
+        data = read_data(directory, fnames[i], stations)
+
+        # Run procedure
+        # TODO write out to file!
+        run_concatenation(data, plot=False)
