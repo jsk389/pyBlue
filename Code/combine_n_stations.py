@@ -108,8 +108,8 @@ def where_overlaps(data):
 
     # Work out where there are no overlaps
     no_overlap = np.setxor1d(ia, overlaps)
-    print("NO-OVERLAP: ", len(no_overlap))
-    print(np.shape(ia))
+    #print("NO-OVERLAP: ", len(no_overlap))
+    #print(np.shape(ia))
     return np.where(x == 1)[0], no_overlap
 
 def calc_noise(data):
@@ -165,7 +165,7 @@ def find_overlaps(data, n_stations):
     full_overlaps = []
     full_no_overlaps = []
     for i in range(len(combinations)):
-        print(combinations[i])
+        #print(combinations[i])
         # Create selectors
         selectors = create_selectors(combinations[i], n_stations)
         # Use selectors to choose data from correct stations - WORKS!
@@ -173,7 +173,7 @@ def find_overlaps(data, n_stations):
         x = np.array(list(x)).T
         # Add time array back in, just in case it is needed
         tmp_data = np.c_[data[:,0], x]
-        print(np.shape(x))
+        #print(np.shape(x))
         overlaps, no_overlaps = where_overlaps(tmp_data[:,1:])
         # Add in data from overlaps
         new_data, starts, ends = recover_overlaps(new_data, tmp_data[:,1:], overlaps)
@@ -231,37 +231,41 @@ def run_concatenation(data, plot=False):
     #stitch_overlaps(new_data, data, full_overlap_starts, full_overlap_ends)
     #sys.exit()
     new_data = add_in_no_overlaps(new_data, data[:,1:], common_elem)
-    # Compute FFTs
-    from copy import deepcopy
-    combo = data[:,1:]
-    window = deepcopy(combo)
-    for i in range(np.shape(window)[1]):
-        window[:,i][window[:,i] != 0] = 1
-    #plt.plot(window)
-    #plt.show()
-    combo = np.sum(combo, axis=1)/np.sum(window, axis=1)
-    combo[~np.isfinite(combo)] = 0
-
     # Make sure there are no nans or infs
     new_data[~np.isfinite(new_data)] = 0
-    # Compute FFTs
-    fb, pb = FFT.fft_out.fft(40.0, len(combo), combo,
-                                      'data', 'one')
-    f, p = FFT.fft_out.fft(40.0, len(new_data), new_data,
-                                      'data', 'one')
-    plt.plot(f*1e6, pb-p)
-    plt.title('Differences')
-    plt.show()
 
-    plt.title('')
-    plt.plot(fb*1e6, pb, 'k')
-    plt.plot(f*1e6, p, 'r')
-    plt.show()
+    if plot == True:
+        # Compute FFTs
+        from copy import deepcopy
+        combo = data[:,1:]
+        window = deepcopy(combo)
+        for i in range(np.shape(window)[1]):
+            window[:,i][window[:,i] != 0] = 1
+        #plt.plot(window)
+        #plt.show()
+        combo = np.sum(combo, axis=1)/np.sum(window, axis=1)
+        combo[~np.isfinite(combo)] = 0
 
 
-    print(float(len(new_data[new_data != 0]))/float(len(new_data)))
+        # Compute FFTs
+        fb, pb = FFT.fft_out.fft(40.0, len(combo), combo,
+                                          'data', 'one')
+        f, p = FFT.fft_out.fft(40.0, len(new_data), new_data,
+                                          'data', 'one')
+        plt.plot(f*1e6, pb-p)
+        plt.title('Differences')
+        plt.show()
+
+        plt.title('')
+        plt.plot(fb*1e6, pb, 'k')
+        plt.plot(f*1e6, p, 'r')
+        plt.show()
+
+
+    #print(float(len(new_data[new_data != 0]))/float(len(new_data)))
     #plt.plot(new_data)
     #plt.show()
+    return new_data
 
 def stitch_overlaps(new_data, data, overlap_start, overlap_end):
     """ Stitch together the data
@@ -309,6 +313,8 @@ if __name__=="__main__":
 
     # Individual sites
     directory = '/home/jsk389/Dropbox/Python/BiSON/SolarFLAG/PCA/Analysis/new_ts/'
+    save_directory = '/home/jsk389/Dropbox/Python/BiSON/SolarFLAG/PCA/Analysis/new_combined_ts/'
+
     labels = ['ca', 'cb', 'iz', 'la', 'mo', 'na', 'su']
 #    fnames = ['ca_1yr_pca_ts.h5', 'cb_1yr_pca_ts.h5', 'iz_1yr_pca_ts.h5', \
 #              'la_1yr_pca_ts.h5', 'mo_1yr_pca_ts.h5', 'na_1yr_pca_ts.h5', \
@@ -322,9 +328,16 @@ if __name__=="__main__":
         tmp = [x.split('/')[-1] for x in tmp]
         fnames[:,i] = np.sort(tmp)
 
-    for i in range(np.shape(fnames)[1]):
+
+
+    for i in range(len(fnames)):
+        year = fnames[i,0].split('_')[1]
+        print("Year being combined: ", year)
+
         data = read_data(directory, fnames[i], stations)
 
         # Run procedure
         # TODO write out to file!
-        run_concatenation(data, plot=False)
+        new_data = run_concatenation(data, plot=False)
+        df = pd.DataFrame(data=np.c_[data[:,0], new_data], columns=['Time', 'Velocity'])
+        df.to_hdf(str(save_directory)+str(year)+'_pca_ts.h5', str(year), mode='w', format='fixed')
