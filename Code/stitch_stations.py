@@ -74,29 +74,71 @@ def stitch(data1, data2, t_stitch):
                     sigma * data2[idx, 1]
     return new_data
 
+import fast_lnp
+def PS_PS(freq, power, ulim, llim):
+
+	# Take power evenly spaced in period and compute average power spectrum according to period spacing
+
+	bw = freq[1]-freq[0]
+
+	f_ulim = ulim/bw
+	f_llim = llim/bw
+
+	period = np.ones(len(freq[f_llim:f_ulim]))/freq[f_llim:f_ulim]
+	powers = power[f_llim:f_ulim]
+
+	# window
+	px, py, nout, jmax, prob = fast_lnp.fasper(period, powers, 10.0, 1.0)
+
+	return px, py
 
 
 if __name__=="__main__":
+    import scipy.ndimage
 
     print("Stitching!")
     fnames = glob.glob("/home/jsk389/Dropbox/Python/BiSON/SolarFLAG/PCA/Analysis/new_combined_ts/*.h5")
-    fnames = np.sort(fnames)
+    #fnames = glob.glob("/home/jsk389/Dropbox/Python/BiSON/SolarFLAG/PCA/Analysis/new_ts/su*.h5")
 
+    fnames = np.sort(fnames)
     # First cycle outside loop
     data1 = get_bison(fnames[0])
     data2 = get_bison(fnames[1])
+    t = data1[:,0]
+    t = np.append(t, data2[:,0])
+    new_dat = data1[:,1]
+    new_dat = np.append(new_dat, data2[:,1])
 
-    new_data = np.zeros(len(data1[:,0] < np.min(data2[:,0])))
-    print(np.shape(new_data), np.shape(data1))
-    sys.exit()
-    new_data[data1[:,0] < np.min(data2[:,0])] = data1[data1[:,0] < np.min(data2[:,0]), 1]
 
     for i in range(2, len(fnames)):
-        tmp = data1[data1[:,0] < np.min(data2[:,0]), 1]
-        #new_data = np.
+        print("Stitching: ", i)
+        data = get_bison(fnames[i])
+        t = np.append(t, data[:,0])
+        new_dat = np.append(new_dat, data[:,1])
+    #df = pd.DataFrame(data=np.c_[t, new_dat], columns=['Time', 'Velocity'])
+    #df.to_hdf('/home/jsk389/Dropbox/Python/BiSON/SolarFLAG/PCA/Analysis/combined_pca_ts.h5', 'a', mode='w', format='fixed')
 
-        data1 = get_bison(fnames[i-1])
-        data2 = get_bison(fnames[i])
-        print(np.shape(data1))
-        sys.exit()
-        #new_data = stitch(data1, data2,)
+
+    f, p = FFT.fft_out.fft(40.0, len(new_dat), new_dat,
+                                      'data', 'one')
+    # PSPS
+    #smoop = scipy.ndimage.filters.uniform_filter1d(p, int(20.0e-6/(f[1]-f[0])))
+    #px, py = PS_PS(f, p/smoop, 140.0e-6, 60.0e-6)
+    #plt.plot((1.0/px) / 60.0, py, 'k')
+    #for i in range(1, 5):
+    #    plt.axvline((34.49/np.sqrt(2.0))/float(i), color='r', linestyle='--')
+    #for i in range(1, 5):
+    #    plt.axvline((34.49/2.0)/float(i), color='g', linestyle='--')
+    #plt.ylabel(r'PSPS')
+    #plt.xlim(0, 50)
+    #plt.xlabel(r'Period (minutes)')
+    #plt.show()
+
+
+    plt.title('')
+    plt.plot(f*1e6, p, 'k')
+    plt.xlim(1, f.max()*1e6)
+    plt.ylim(1e-4, 1e6)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.show()
